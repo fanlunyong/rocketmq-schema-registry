@@ -57,6 +57,11 @@ public class ReflectionAvroSerializer<T> implements Serializer<T> {
     }
 
     @Override
+    public byte[] serialize(String cluster, String tenant, String subject, T originMessage) {
+        throw new UnsupportedOperationException("un support operation");
+    }
+
+    @Override
     public void close() {
     }
 }

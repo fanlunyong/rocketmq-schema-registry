@@ -20,6 +20,7 @@ package org.apache.rocketmq.schema.registry.example.serde.json;
 import org.apache.rocketmq.schema.registry.client.SchemaRegistryClient;
 import org.apache.rocketmq.schema.registry.client.SchemaRegistryClientFactory;
 import org.apache.rocketmq.schema.registry.client.config.JsonSerdeConfig;
+import org.apache.rocketmq.schema.registry.client.config.SerdeConfig;
 import org.apache.rocketmq.schema.registry.client.exceptions.RestClientException;
 import org.apache.rocketmq.schema.registry.client.serde.json.JsonSerde;
 import org.apache.rocketmq.schema.registry.common.dto.RegisterSchemaRequest;
@@ -35,23 +36,26 @@ import java.util.Map;
 public class JsonSerdeDemo {
     public static void main(String[] args) {
 
-        String baseUrl = "http://localhost:8080";
+        String baseUrl = "http://192.168.118.85:9978";
         SchemaRegistryClient schemaRegistryClient = SchemaRegistryClientFactory.newClient(baseUrl, null);
 
         // register schema first, if have registered before ignore
-        String topic = "TopicTest";
+        String topic = "schema-registry";
         RegisterSchemaRequest request = RegisterSchemaRequest.builder()
                 .schemaIdl("{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"},\"age\":{\"type\":\"int\"}}")
                 .schemaType(SchemaType.JSON)
                 .compatibility(Compatibility.BACKWARD)
                 .owner("test").build();
+        String clusterName = "terminus message engine cluster";
+        String tenant = "chongqing ai park";
         try {
             RegisterSchemaResponse response
-                    = schemaRegistryClient.registerSchema("default", "tanant1", topic, "Person", request);
+                    = schemaRegistryClient.registerSchema(clusterName,
+                    tenant, topic, "Person", request);
             System.out.println("register schema success, schemaId: " + response.getRecordId());
 
             Thread.sleep(5000);
-            System.out.println("current schema: " + schemaRegistryClient.getSchemaBySubject(topic));
+            System.out.println("current schema: " + schemaRegistryClient.getSchemaBySubject("terminus message engine cluster", "chongqing ai park",topic));
         } catch (RestClientException | IOException | InterruptedException e) {
             e.printStackTrace();
         }
@@ -62,10 +66,14 @@ public class JsonSerdeDemo {
         try(JsonSerde<Person> jsonSerde = new JsonSerde<>(schemaRegistryClient)) {
             Map<String, Object> configs = new HashMap<>();
             configs.put(JsonSerdeConfig.DESERIALIZE_TARGET_TYPE, Person.class);
+            configs.put(SerdeConfig.SCHEMA_CLUSTER, clusterName);
+            configs.put(SerdeConfig.SCHEMA_TENANT,tenant);
             jsonSerde.configure(configs);
-            byte[] bytes = jsonSerde.serializer().serialize("TopicTest", person);
+//            byte[] bytes = jsonSerde.serializer().serialize("schema-registry", person);
+            byte[] bytes = jsonSerde.serializer().serialize(clusterName,tenant,"schema-registry", person);
+//            Person person1 = jsonSerde.deserializer().deserialize("schema-registry", bytes);
 
-            Person person1 = jsonSerde.deserializer().deserialize("TopicTest", bytes);
+            Person person1 = jsonSerde.deserializer().deserialize(clusterName,tenant,"schema-registry", bytes);
             System.out.printf("after deserialize new person is %s\n", person1);
             System.out.printf("person == person1 : %b\n", person1.equals(person));
         } catch (IOException e) {

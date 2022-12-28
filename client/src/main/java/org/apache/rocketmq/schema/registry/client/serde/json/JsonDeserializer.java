@@ -95,6 +95,45 @@ public class JsonDeserializer<T> implements Deserializer<T> {
     }
 
     @Override
+    public T deserialize(String cluster, String tenant, String subject, byte[] payload) {
+        if (null == payload || payload.length == 0) {
+            return null;
+        }
+
+        if (skipSchemaRegistry) {
+            if (null == type) {
+                throw new SerializationException("type cannot be null");
+            }
+            try {
+                return objectMapper.readValue(payload, type);
+            } catch (Exception e) {
+                throw new SerializationException("JSON serialize failed", e);
+            }
+        }
+
+        if (null == registryClient) {
+            throw new SerializationException("please initialize the schema registry client first");
+        }
+
+        try {
+            GetSchemaResponse response = registryClient.getSchemaBySubject(cluster,tenant,subject);
+            ByteBuffer buffer = ByteBuffer.wrap(payload);
+
+            long schemaRecordId = buffer.getLong();
+
+            int length = buffer.limit() - SchemaConstants.SCHEMA_RECORD_ID_LENGTH;
+            int start = buffer.position() + buffer.arrayOffset();
+
+            JsonNode jsonNode = null;
+            jsonNode = objectMapper.readValue(buffer.array(), start, length, JsonNode.class);
+
+            return objectMapper.convertValue(jsonNode, type);
+        } catch (RestClientException | IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    @Override
     public void close() {
 
     }

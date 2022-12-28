@@ -69,21 +69,56 @@ public class JsonSerializer<T> implements Serializer<T> {
             throw new SerializationException("please initialize the schema registry client first");
         }
 
-        try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+        try {
             GetSchemaResponse response = registryClient.getSchemaBySubject(subject);
-            long schemaRecordId = response.getRecordId();
-            ByteBuffer buffer = ByteBuffer.allocate(SchemaConstants.SCHEMA_RECORD_ID_LENGTH);
-            out.write(buffer.putLong(schemaRecordId).array());
-            out.write(objectMapper.writeValueAsBytes(originMessage));
-
-            byte[] bytes = out.toByteArray();
-            return bytes;
+            return doSerialize(response, originMessage);
         } catch (IOException | RuntimeException e) {
             throw new SerializationException("JSON serialize failed", e);
         } catch (RestClientException e) {
             throw new SerializationException("get schema by subject failed", e);
         }
 
+    }
+
+    @Override
+    public byte[] serialize(String cluster, String tenant, String subject, T originMessage) {
+        if (null == originMessage) {
+            return null;
+        }
+
+        if (skipSchemaRegistry) {
+            try {
+                return objectMapper.writeValueAsBytes(originMessage);
+            } catch (JsonProcessingException e) {
+                throw new SerializationException("JSON serialize failed", e);
+            }
+        }
+
+        if (null == registryClient) {
+            throw new SerializationException("please initialize the schema registry client first");
+        }
+        try {
+            GetSchemaResponse response = registryClient.getSchemaBySubject(cluster, tenant, subject);
+            return doSerialize(response, originMessage);
+        } catch (IOException | RuntimeException e) {
+            throw new SerializationException("serialize Avro message failed", e);
+        } catch (RestClientException e) {
+            throw new SerializationException("get target schema failed", e);
+        }
+    }
+
+    private byte[] doSerialize(GetSchemaResponse response, T record) {
+        try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            long schemaRecordId = response.getRecordId();
+            ByteBuffer buffer = ByteBuffer.allocate(SchemaConstants.SCHEMA_RECORD_ID_LENGTH);
+            out.write(buffer.putLong(schemaRecordId).array());
+            out.write(objectMapper.writeValueAsBytes(record));
+
+            byte[] bytes = out.toByteArray();
+            return bytes;
+        } catch (IOException | RuntimeException e) {
+            throw new SerializationException("JSON serialize failed", e);
+        }
     }
 
     @Override

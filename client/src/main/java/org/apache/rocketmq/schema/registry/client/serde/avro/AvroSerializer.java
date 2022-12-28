@@ -44,7 +44,8 @@ public class AvroSerializer<T> implements Serializer<T> {
     protected SchemaRegistryClient schemaRegistry;
     private final EncoderFactory encoderFactory = EncoderFactory.get();
 
-    public AvroSerializer() {}
+    public AvroSerializer() {
+    }
 
     public AvroSerializer(SchemaRegistryClient schemaRegistryClient) {
         schemaRegistry = schemaRegistryClient;
@@ -72,6 +73,51 @@ public class AvroSerializer<T> implements Serializer<T> {
             purposeSchema = SpecificData.get().getSchema(record.getClass()).toString();
         }
 
+        try {
+            GetSchemaResponse response = schemaRegistry.getTargetSchema(subject, purposeSchema);
+            return doSerialize(subject, purposeSchema, response, record);
+        } catch (IOException | RuntimeException e) {
+            throw new SerializationException("serialize Avro message failed", e);
+        } catch (RestClientException e) {
+            throw new SerializationException("get target schema failed", e);
+        }
+    }
+
+    @Override
+    public byte[] serialize(String cluster, String tenant, String subject, T record) {
+        if (schemaRegistry == null) {
+            throw new SerializationException("please initialize the schema registry client first");
+        }
+
+        if (record == null) {
+            return null;
+        }
+        String purposeSchema;
+        if (record instanceof GenericRecord) {
+            purposeSchema = ((GenericContainer) record).getSchema().toString();
+        } else {
+            purposeSchema = SpecificData.get().getSchema(record.getClass()).toString();
+        }
+
+        try {
+            GetSchemaResponse response = schemaRegistry.getTargetSchema(cluster,tenant,subject, purposeSchema);
+            return doSerialize(subject, purposeSchema, response, record);
+        } catch (IOException | RuntimeException e) {
+            throw new SerializationException("serialize Avro message failed", e);
+        } catch (RestClientException e) {
+            throw new SerializationException("get target schema failed", e);
+        }
+    }
+
+    /**
+     * exec serialize
+     * @param subject
+     * @param purposeSchema
+     * @param targetSchemaResponse
+     * @param record
+     * @return
+     */
+    private byte[] doSerialize(String subject,String purposeSchema,GetSchemaResponse targetSchemaResponse, T record) {
         try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             BinaryEncoder encoder = encoderFactory.directBinaryEncoder(out, null);
             GetSchemaResponse response = schemaRegistry.getTargetSchema(subject, purposeSchema);

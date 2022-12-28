@@ -26,5 +26,8 @@ public interface Serializer<T> extends Closeable {
 
     byte[] serialize(String subject, T originMessage);
 
+    byte[] serialize(String cluster, String tenant,
+                     String subject, T originMessage);
+
     default void close(){}
 }

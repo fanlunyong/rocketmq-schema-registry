@@ -62,6 +62,11 @@ public class ReflectionAvroDeserializer<T> implements Deserializer<T> {
     }
 
     @Override
+    public T deserialize(String cluster, String tenant, String subject, byte[] bytes) {
+        throw new UnsupportedOperationException("un supported operation");
+    }
+
+    @Override
     public void close() {
 
     }

@@ -46,6 +46,11 @@ public class SpecificAvroDeserializer<T extends SpecificRecord> implements Deser
         return (T) this.inner.deserialize(subject, bytes);
     }
 
+    @Override
+    public T deserialize(String cluster, String tenant, String subject, byte[] bytes) {
+        return (T) this.inner.deserialize(cluster,tenant,subject,bytes);
+    }
+
     @SuppressWarnings("unchecked")
     public T deserialize(String subject, byte[] bytes, Schema readerSchema) {
         return (T) this.inner.deserialize(subject, bytes, readerSchema);

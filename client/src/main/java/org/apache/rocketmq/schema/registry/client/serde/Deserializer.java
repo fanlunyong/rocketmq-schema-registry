@@ -25,5 +25,7 @@ public interface Deserializer<T> extends Closeable {
 
     T deserialize(String subject, byte[] bytes);
 
+    T deserialize(String cluster, String tenant,String subject, byte[] bytes);
+
     default void close(){};
 }

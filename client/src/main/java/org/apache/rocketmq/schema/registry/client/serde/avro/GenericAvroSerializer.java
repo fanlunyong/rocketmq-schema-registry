@@ -44,6 +44,11 @@ public class GenericAvroSerializer implements Serializer<GenericRecord> {
     }
 
     @Override
+    public byte[] serialize(String cluster, String tenant, String subject, GenericRecord originMessage) {
+        return this.inner.serialize(cluster,tenant,subject, originMessage);
+    }
+
+    @Override
     public void close() {
         this.inner.close();
     }

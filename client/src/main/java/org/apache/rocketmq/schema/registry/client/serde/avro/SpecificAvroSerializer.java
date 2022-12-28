@@ -44,6 +44,11 @@ public class SpecificAvroSerializer<T> implements Serializer<T> {
     }
 
     @Override
+    public byte[] serialize(String cluster, String tenant, String subject, T originMessage) {
+        return this.inner.serialize(cluster,tenant,subject,originMessage);
+    }
+
+    @Override
     public void close() {
         this.inner.close();
     }

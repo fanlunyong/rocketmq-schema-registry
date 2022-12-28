@@ -49,5 +49,9 @@ public class RocketmqConfigConstants {
     public static final byte[] STORAGE_ROCKSDB_SCHEMA_COLUMN_FAMILY = "schema".getBytes(StandardCharsets.UTF_8);
     public static final byte[] STORAGE_ROCKSDB_SUBJECT_COLUMN_FAMILY = "subject".getBytes(StandardCharsets.UTF_8);
 
+    public static final String STORAGE_ROCKETMQ_ACL_ENABLE = "storage.rocketmq.acl.enable";
+    public static final String STORAGE_ROCKETMQ_ACCESS_KEY = "storage.rocketmq.access-key";
+    public static final String STORAGE_ROCKETMQ_SECRET_KEY = "storage.rocketmq.secret-key";
+
     public static final String DELETE_KEYS = "deleted";
 }

@@ -43,7 +43,12 @@ public class GenericAvroDeserializer implements Deserializer<GenericRecord> {
     public GenericRecord deserialize(String subject, byte[] bytes) {
         return this.inner.deserialize(subject, bytes);
     }
-    
+
+    @Override
+    public GenericRecord deserialize(String cluster, String tenant, String subject, byte[] bytes) {
+        return this.inner.deserialize(cluster,tenant,subject,bytes);
+    }
+
     public GenericRecord deserialize(String subject, byte[] bytes, Schema readerSchema) {
         return this.inner.deserialize(subject, bytes, readerSchema);
     }

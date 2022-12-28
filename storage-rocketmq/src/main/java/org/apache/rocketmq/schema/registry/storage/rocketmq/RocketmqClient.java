@@ -27,10 +27,14 @@ import java.util.Properties;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.rocketmq.acl.common.AclClientRPCHook;
+import org.apache.rocketmq.acl.common.SessionCredentials;
 import org.apache.rocketmq.client.consumer.DefaultMQPushConsumer;
 import org.apache.rocketmq.client.consumer.listener.ConsumeOrderlyContext;
 import org.apache.rocketmq.client.consumer.listener.ConsumeOrderlyStatus;
 import org.apache.rocketmq.client.consumer.listener.MessageListenerOrderly;
+import org.apache.rocketmq.client.consumer.rebalance.AllocateMessageQueueAveragely;
 import org.apache.rocketmq.client.exception.MQClientException;
 import org.apache.rocketmq.client.producer.DefaultMQProducer;
 import org.apache.rocketmq.client.producer.MessageQueueSelector;
@@ -65,21 +69,24 @@ import org.rocksdb.RocksDBException;
 import org.rocksdb.RocksIterator;
 
 import static org.apache.rocketmq.schema.registry.storage.rocketmq.configs.RocketmqConfigConstants.DELETE_KEYS;
-import static org.apache.rocketmq.schema.registry.storage.rocketmq.configs.RocketmqConfigConstants.STORAGE_LOCAL_CACHE_PATH;
-import static org.apache.rocketmq.schema.registry.storage.rocketmq.configs.RocketmqConfigConstants.STORAGE_LOCAL_CACHE_PATH_DEFAULT;
-import static org.apache.rocketmq.schema.registry.storage.rocketmq.configs.RocketmqConfigConstants.STORAGE_ROCKETMQ_COMPACT_TOPIC_DEFAULT;
-import static org.apache.rocketmq.schema.registry.storage.rocketmq.configs.RocketmqConfigConstants.STORAGE_ROCKETMQ_CONSUMER_GROUP;
-import static org.apache.rocketmq.schema.registry.storage.rocketmq.configs.RocketmqConfigConstants.STORAGE_ROCKETMQ_CONSUMER_GROUP_DEFAULT;
-import static org.apache.rocketmq.schema.registry.storage.rocketmq.configs.RocketmqConfigConstants.STORAGE_ROCKETMQ_NAMESRV;
-import static org.apache.rocketmq.schema.registry.storage.rocketmq.configs.RocketmqConfigConstants.STORAGE_ROCKETMQ_NAMESRV_DEFAULT;
 import static org.apache.rocketmq.schema.registry.storage.rocketmq.configs.RocketmqConfigConstants.STORAGE_ROCKETMQ_PRODUCER_GROUP;
-import static org.apache.rocketmq.schema.registry.storage.rocketmq.configs.RocketmqConfigConstants.STORAGE_ROCKETMQ_PRODUCER_GROUP_DEFAULT;
+import static org.apache.rocketmq.schema.registry.storage.rocketmq.configs.RocketmqConfigConstants.STORAGE_ROCKETMQ_CONSUMER_GROUP;
+import static org.apache.rocketmq.schema.registry.storage.rocketmq.configs.RocketmqConfigConstants.STORAGE_ROCKETMQ_NAMESRV;
 import static org.apache.rocketmq.schema.registry.storage.rocketmq.configs.RocketmqConfigConstants.STORAGE_ROCKETMQ_TOPIC;
-import static org.apache.rocketmq.schema.registry.storage.rocketmq.configs.RocketmqConfigConstants.STORAGE_ROCKETMQ_TOPIC_DEFAULT;
 import static org.apache.rocketmq.schema.registry.storage.rocketmq.configs.RocketmqConfigConstants.STORAGE_ROCKETMQ_USE_COMPACT_TOPIC;
-import static org.apache.rocketmq.schema.registry.storage.rocketmq.configs.RocketmqConfigConstants.STORAGE_ROCKETMQ_USE_COMPACT_TOPIC_DEFAULT;
+import static org.apache.rocketmq.schema.registry.storage.rocketmq.configs.RocketmqConfigConstants.STORAGE_LOCAL_CACHE_PATH;
+import static org.apache.rocketmq.schema.registry.storage.rocketmq.configs.RocketmqConfigConstants.STORAGE_ROCKETMQ_ACL_ENABLE;
+import static org.apache.rocketmq.schema.registry.storage.rocketmq.configs.RocketmqConfigConstants.STORAGE_ROCKETMQ_ACCESS_KEY;
+import static org.apache.rocketmq.schema.registry.storage.rocketmq.configs.RocketmqConfigConstants.STORAGE_ROCKETMQ_SECRET_KEY;
 import static org.apache.rocketmq.schema.registry.storage.rocketmq.configs.RocketmqConfigConstants.STORAGE_ROCKSDB_SCHEMA_COLUMN_FAMILY;
 import static org.apache.rocketmq.schema.registry.storage.rocketmq.configs.RocketmqConfigConstants.STORAGE_ROCKSDB_SUBJECT_COLUMN_FAMILY;
+import static org.apache.rocketmq.schema.registry.storage.rocketmq.configs.RocketmqConfigConstants.STORAGE_ROCKETMQ_USE_COMPACT_TOPIC_DEFAULT;
+import static org.apache.rocketmq.schema.registry.storage.rocketmq.configs.RocketmqConfigConstants.STORAGE_ROCKETMQ_COMPACT_TOPIC_DEFAULT;
+import static org.apache.rocketmq.schema.registry.storage.rocketmq.configs.RocketmqConfigConstants.STORAGE_LOCAL_CACHE_PATH_DEFAULT;
+import static org.apache.rocketmq.schema.registry.storage.rocketmq.configs.RocketmqConfigConstants.STORAGE_ROCKETMQ_PRODUCER_GROUP_DEFAULT;
+import static org.apache.rocketmq.schema.registry.storage.rocketmq.configs.RocketmqConfigConstants.STORAGE_ROCKETMQ_TOPIC_DEFAULT;
+import static org.apache.rocketmq.schema.registry.storage.rocketmq.configs.RocketmqConfigConstants.STORAGE_ROCKETMQ_NAMESRV_DEFAULT;
+import static org.apache.rocketmq.schema.registry.storage.rocketmq.configs.RocketmqConfigConstants.STORAGE_ROCKETMQ_CONSUMER_GROUP_DEFAULT;
 
 @Slf4j
 public class RocketmqClient {
@@ -94,6 +101,9 @@ public class RocketmqClient {
     private final List<ColumnFamilyHandle> cfHandleList = new ArrayList<>();
     private final List<ColumnFamilyDescriptor> cfDescriptors = new ArrayList<>();
     private final Map<String, ColumnFamilyHandle> cfHandleMap = new HashMap<>();
+    private boolean aclEnable = false;
+    private String accessKey;
+    private String secretKey;
 
     /**
      * RocksDB for cache
@@ -126,14 +136,14 @@ public class RocketmqClient {
             }
 
             if (topicRouteData != null && CollectionUtils.isNotEmpty(topicRouteData.getBrokerDatas())
-                && CollectionUtils.isNotEmpty(topicRouteData.getQueueDatas())) {
+                    && CollectionUtils.isNotEmpty(topicRouteData.getQueueDatas())) {
                 log.info("the storage topic {} already exist, no need to create", storageTopic);
                 return;
             }
 
             try {
                 ClusterInfo clusterInfo = mqAdminExt.examineBrokerClusterInfo();
-                HashMap<String, BrokerData> brokerAddrTable = clusterInfo.getBrokerAddrTable();
+                Map<String, BrokerData> brokerAddrTable = clusterInfo.getBrokerAddrTable();
                 for (BrokerData brokerData : brokerAddrTable.values()) {
                     TopicConfig topicConfig = new TopicConfig();
                     topicConfig.setTopicName(storageTopic);
@@ -148,6 +158,7 @@ public class RocketmqClient {
                     mqAdminExt.createAndUpdateTopicConfig(brokerAddr, topicConfig);
                 }
             } catch (Exception e) {
+                log.error("",e);
                 throw new SchemaException("Failed to create storage rocketmq topic", e);
             } finally {
                 mqAdminExt.shutdown();
@@ -165,27 +176,27 @@ public class RocketmqClient {
             List<byte[]> cfs = RocksDB.listColumnFamilies(options, cachePath);
             if (cfs.size() <= 1) {
                 List<byte[]> columnFamilies = Arrays.asList(STORAGE_ROCKSDB_SCHEMA_COLUMN_FAMILY,
-                    STORAGE_ROCKSDB_SUBJECT_COLUMN_FAMILY);
+                        STORAGE_ROCKSDB_SUBJECT_COLUMN_FAMILY);
                 cache = org.rocksdb.RocksDB.open(options, cachePath);
                 cfDescriptors.addAll(columnFamilies.stream()
-                    .map(ColumnFamilyDescriptor::new)
-                    .collect(Collectors.toList()));
+                        .map(ColumnFamilyDescriptor::new)
+                        .collect(Collectors.toList()));
                 cfHandleList.addAll(cache.createColumnFamilies(cfDescriptors));
             } else {
                 cfDescriptors.addAll(cfs.stream()
-                    .map(ColumnFamilyDescriptor::new)
-                    .collect(Collectors.toList()));
+                        .map(ColumnFamilyDescriptor::new)
+                        .collect(Collectors.toList()));
                 cache = org.rocksdb.RocksDB.open(dbOptions, cachePath, cfDescriptors, cfHandleList);
             }
 
             cfHandleMap.putAll(
-                cfHandleList.stream().collect(Collectors.toMap(h -> {
-                    try {
-                        return new String(h.getName());
-                    } catch (RocksDBException e) {
-                        throw new SchemaException("Failed to open RocksDB", e);
-                    }
-                }, h -> h)));
+                    cfHandleList.stream().collect(Collectors.toMap(h -> {
+                        try {
+                            return new String(h.getName());
+                        } catch (RocksDBException e) {
+                            throw new SchemaException("Failed to open RocksDB", e);
+                        }
+                    }, h -> h)));
 
             assert cfHandleList.size() >= 2;
         } catch (RocksDBException e) {
@@ -210,7 +221,7 @@ public class RocketmqClient {
 
         @Override
         public ConsumeOrderlyStatus consumeMessage(List<MessageExt> msgList,
-            ConsumeOrderlyContext context) {
+                                                   ConsumeOrderlyContext context) {
             try {
                 if (CollectionUtils.isNotEmpty(msgList)) {
                     msgList.forEach(this::consumeMessage);
@@ -229,7 +240,7 @@ public class RocketmqClient {
             synchronized (this) {
                 try {
                     log.info("receive msg, queue={}, offset={}, key={}, the content is {}", msg.getQueueId(),
-                        msg.getQueueOffset(), msg.getKeys(), new String(msg.getBody()));
+                            msg.getQueueOffset(), msg.getKeys(), new String(msg.getBody()));
                     byte[] schemaFullName = converter.toBytes(msg.getKeys());
                     byte[] schemaInfoBytes = msg.getBody();
                     SchemaInfo update = converter.fromJson(schemaInfoBytes, SchemaInfo.class);
@@ -239,8 +250,7 @@ public class RocketmqClient {
                         log.info("receive delete schema msg, schema = {}", update);
                         deleteAllSubject(update);
                         cache.delete(schemaCfHandle(), schemaFullName);
-                    }
-                    else {
+                    } else {
                         byte[] lastRecordBytes = converter.toJsonAsBytes(update.getLastRecord());
 
                         byte[] result = cache.get(schemaCfHandle(), schemaFullName);
@@ -252,7 +262,7 @@ public class RocketmqClient {
                             SchemaInfo current = converter.fromJson(result, SchemaInfo.class);
                             boolean isVersionDeleted = current.getRecordCount() > update.getRecordCount();
                             if (current.getLastModifiedTime() != null && update.getLastModifiedTime() != null &&
-                                current.getLastModifiedTime().after(update.getLastModifiedTime())) {
+                                    current.getLastModifiedTime().after(update.getLastModifiedTime())) {
                                 log.info("Current Schema is later version, no need to update.");
                                 return;
                             }
@@ -262,7 +272,7 @@ public class RocketmqClient {
                             }
                             if (current.getLastRecordVersion() > update.getLastRecordVersion() && !isVersionDeleted) {
                                 throw new SchemaException("Schema version is invalid, update: "
-                                    + update.getLastRecordVersion() + ", but current: " + current.getLastRecordVersion());
+                                        + update.getLastRecordVersion() + ", but current: " + current.getLastRecordVersion());
                             }
 
                             cache.put(schemaCfHandle(), schemaFullName, schemaInfoBytes);
@@ -447,33 +457,63 @@ public class RocketmqClient {
 
     private void init(Properties props) {
         this.useCompactTopic = Boolean.parseBoolean(props.getProperty(STORAGE_ROCKETMQ_USE_COMPACT_TOPIC,
-            STORAGE_ROCKETMQ_USE_COMPACT_TOPIC_DEFAULT));
+                STORAGE_ROCKETMQ_USE_COMPACT_TOPIC_DEFAULT));
         String defaultTopic = useCompactTopic ? STORAGE_ROCKETMQ_COMPACT_TOPIC_DEFAULT : STORAGE_ROCKETMQ_TOPIC_DEFAULT;
         this.storageTopic = props.getProperty(STORAGE_ROCKETMQ_TOPIC, defaultTopic);
         this.cachePath = props.getProperty(STORAGE_LOCAL_CACHE_PATH, STORAGE_LOCAL_CACHE_PATH_DEFAULT);
+        this.aclEnable = Boolean.parseBoolean(props.getProperty(STORAGE_ROCKETMQ_ACL_ENABLE, "false"));
+        this.accessKey = props.getProperty(STORAGE_ROCKETMQ_ACCESS_KEY);
+        this.secretKey = props.getProperty(STORAGE_ROCKETMQ_SECRET_KEY);
 
-        this.producer = new DefaultMQProducer(
-            props.getProperty(STORAGE_ROCKETMQ_PRODUCER_GROUP, STORAGE_ROCKETMQ_PRODUCER_GROUP_DEFAULT)
-        );
+        if (this.aclEnable && (StringUtils.isBlank(accessKey) || StringUtils.isBlank(secretKey))) {
+            throw new IllegalArgumentException("rocket mq acl config error!");
+        }
+        if (!this.aclEnable) {
+            this.producer = new DefaultMQProducer(
+                    props.getProperty(STORAGE_ROCKETMQ_PRODUCER_GROUP, STORAGE_ROCKETMQ_PRODUCER_GROUP_DEFAULT)
+            );
+        } else {
+            this.producer = new DefaultMQProducer((String) null, props.getProperty(STORAGE_ROCKETMQ_PRODUCER_GROUP, STORAGE_ROCKETMQ_PRODUCER_GROUP_DEFAULT), rpcHook(), true, null);
+        }
+
 
         this.producer.setNamesrvAddr(
-            props.getProperty(STORAGE_ROCKETMQ_NAMESRV, STORAGE_ROCKETMQ_NAMESRV_DEFAULT)
+                props.getProperty(STORAGE_ROCKETMQ_NAMESRV, STORAGE_ROCKETMQ_NAMESRV_DEFAULT)
         );
 
-        this.consumer = new DefaultMQPushConsumer(
-            props.getProperty(STORAGE_ROCKETMQ_CONSUMER_GROUP, STORAGE_ROCKETMQ_CONSUMER_GROUP_DEFAULT)
-        );
+        if (!this.aclEnable) {
+            this.consumer = new DefaultMQPushConsumer(
+                    props.getProperty(STORAGE_ROCKETMQ_CONSUMER_GROUP, STORAGE_ROCKETMQ_CONSUMER_GROUP_DEFAULT)
+            );
+        } else {
+            this.consumer = new DefaultMQPushConsumer(
+                    (String) null,
+                    props.getProperty(STORAGE_ROCKETMQ_CONSUMER_GROUP, STORAGE_ROCKETMQ_CONSUMER_GROUP_DEFAULT),
+                    rpcHook(),
+                    new AllocateMessageQueueAveragely(),
+                    true,
+                    null
+            );
+        }
 
         this.consumer.setNamesrvAddr(
-            props.getProperty(STORAGE_ROCKETMQ_NAMESRV, STORAGE_ROCKETMQ_NAMESRV_DEFAULT)
+                props.getProperty(STORAGE_ROCKETMQ_NAMESRV, STORAGE_ROCKETMQ_NAMESRV_DEFAULT)
         );
 
-        this.mqAdminExt = new DefaultMQAdminExt();
+        if (!this.aclEnable) {
+            this.mqAdminExt = new DefaultMQAdminExt();
+        } else {
+            this.mqAdminExt = new DefaultMQAdminExt(rpcHook());
+        }
         mqAdminExt.setNamesrvAddr(
-            props.getProperty(STORAGE_ROCKETMQ_NAMESRV, STORAGE_ROCKETMQ_NAMESRV_DEFAULT)
+                props.getProperty(STORAGE_ROCKETMQ_NAMESRV, STORAGE_ROCKETMQ_NAMESRV_DEFAULT)
         );
 
         this.converter = new JsonConverterImpl();
+    }
+
+    private AclClientRPCHook rpcHook() {
+        return new AclClientRPCHook(new SessionCredentials(this.accessKey, this.secretKey));
     }
 
     private ColumnFamilyHandle schemaCfHandle() {
@@ -488,8 +528,8 @@ public class RocketmqClient {
         // delete subjects bind to any version
         List<SchemaRecordInfo> allSchemaRecords = current.getDetails().getSchemaRecords();
         List<String> allSubjects = allSchemaRecords.parallelStream()
-            .flatMap(record -> record.getSubjects().stream().map(SubjectInfo::fullName))
-            .collect(Collectors.toList());
+                .flatMap(record -> record.getSubjects().stream().map(SubjectInfo::fullName))
+                .collect(Collectors.toList());
 
         allSubjects.forEach(subject -> {
             try {

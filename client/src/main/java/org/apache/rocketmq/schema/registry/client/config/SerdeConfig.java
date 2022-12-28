@@ -38,6 +38,16 @@ public class SerdeConfig {
 
     public final static long SCHEMA_TARGET_VERSION_DEFAULT = -1;
 
+    /**
+     * specific cluster
+     */
+    public final static String SCHEMA_CLUSTER = "schema.cluster";
+    /**
+     * specific tenant
+     */
+    public final static String SCHEMA_TENANT = "schema.tenant";
+
+
     protected Map<String, Object> configs;
 
     public boolean skipSchemaRegistry() {
